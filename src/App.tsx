@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { BrowserRouter, Navigate, NavLink, Route, Routes, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   BarChart3, BookOpen, CalendarDays, LayoutDashboard,
   LogOut, Moon, Plus, Settings, Timer, ListTodo, GraduationCap, Menu, X,
-  ArrowLeft, Sun, Flame, Target, CheckCircle2, Clock3, Sparkles,
+  ArrowLeft, Sun, Flame, Target, CheckCircle2, Clock3, Sparkles, AlertCircle, LoaderCircle,
 } from 'lucide-react'
 import { format, startOfWeek, addDays, isToday } from 'date-fns'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -185,6 +185,62 @@ function EmptyState({ title, text, action }: { title: string; text: string; acti
   return <div className="grid min-h-36 place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-center"><div><BookOpen className="mx-auto mb-2 text-slate-300" /><p className="font-medium text-slate-700">{title}</p><p className="mt-1 text-sm text-slate-500">{text}</p>{action}</div></div>
 }
 
+function FormDialog({ title, description, icon: Icon, onClose, children }: {
+  title: string
+  description: string
+  icon: typeof BookOpen
+  onClose: () => void
+  children: ReactNode
+}) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  return <div className="dialog-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="form-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <header className="form-dialog-header">
+        <div className="form-dialog-title">
+          <span className="dialog-icon"><Icon size={20} /></span>
+          <div><h2 id="dialog-title">{title}</h2><p>{description}</p></div>
+        </div>
+        <button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={18} /></button>
+      </header>
+      {children}
+    </section>
+  </div>
+}
+
+function FormNotice({ message }: { message: string }) {
+  if (!message) return null
+  return <div className="form-error" role="alert"><AlertCircle size={17} /><span>{message}</span></div>
+}
+
+function FormActions({ busy, onCancel, label }: { busy: boolean; onCancel: () => void; label: string }) {
+  return <footer className="form-actions">
+    <button type="button" className="secondary-button" onClick={onCancel} disabled={busy}>Cancel</button>
+    <button type="submit" className="primary-button" disabled={busy}>{busy && <LoaderCircle className="spin" size={16} />}{busy ? 'Saving…' : label}</button>
+  </footer>
+}
+
+function Field({ label, hint, className = '', children }: { label: string; hint?: string; className?: string; children: ReactNode }) {
+  return <label className={`form-field ${className}`}><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Something went wrong. Please try again.'
+}
+
+async function getSignedInUser() {
+  const { data, error } = await supabase!.auth.getUser()
+  if (error) throw error
+  if (!data.user) throw new Error('Your session has expired. Sign in again to continue.')
+  return data.user
+}
+
 function Dashboard() {
   const [data, setData] = useState<{ subjects: number; tasks: unknown[]; sessions: unknown[]; hours: number }>({ subjects: 0, tasks: [], sessions: [], hours: 0 })
   const [loading, setLoading] = useState(true)
@@ -233,9 +289,9 @@ function Dashboard() {
         <Card title="Quick actions">
           <div className="quick-actions">
             {[
-              { label: 'Add subject', path: '/subjects', icon: BookOpen },
-              { label: 'Add task', path: '/tasks', icon: CheckCircle2 },
-              { label: 'Add exam', path: '/exams', icon: GraduationCap },
+              { label: 'Add subject', path: '/subjects?add=1', icon: BookOpen },
+              { label: 'Add task', path: '/tasks?add=1', icon: CheckCircle2 },
+              { label: 'Add exam', path: '/exams?add=1', icon: GraduationCap },
               { label: 'Generate plan', path: '/planner', icon: Sparkles },
             ].map(({ label, path, icon: Icon }) => <NavLink key={label} to={path} className="quick-action"><span><Icon size={17} /></span>{label}<ArrowLeft className="quick-arrow" size={14} /></NavLink>)}
           </div>
@@ -249,23 +305,67 @@ function Dashboard() {
 function SubjectsPage() {
   const [subjects, setSubjects] = useState<any[]>([])
   const [open, setOpen] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [form, setForm] = useState({ name: '', description: '', difficulty: 'Medium', priority: 'Medium', weekly_target_minutes: 180, understanding_level: 50, color: '#6C5CE7' })
-  async function load() { const { data } = await supabase!.from('subjects').select('*').order('created_at'); setSubjects(data ?? []) }
-  useEffect(() => { load() }, [])
-  async function save(e: React.FormEvent) { e.preventDefault(); const { data: { user } } = await supabase!.auth.getUser(); if (!user) return; await supabase!.from('subjects').insert({ ...form, user_id: user.id }); setOpen(false); setForm({ name: '', description: '', difficulty: 'Medium', priority: 'Medium', weekly_target_minutes: 180, understanding_level: 50, color: '#6C5CE7' }); load() }
-  async function remove(id: string) { if (!confirm('Delete this subject?')) return; await supabase!.from('subjects').delete().eq('id', id); load() }
+  async function load() {
+    const { data, error } = await supabase!.from('subjects').select('*').order('created_at')
+    if (error) throw error
+    setSubjects(data ?? [])
+  }
+  useEffect(() => { load().catch(cause => setError(getErrorMessage(cause))) }, [])
+  useEffect(() => {
+    if (searchParams.get('add') === '1') {
+      setOpen(true)
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    if (!form.name.trim()) { setError('Enter a subject name.'); return }
+    setBusy(true); setError('')
+    try {
+      const user = await getSignedInUser()
+      const { error } = await supabase!.from('subjects').insert({ ...form, name: form.name.trim(), user_id: user.id })
+      if (error) throw error
+      await load()
+      setOpen(false)
+      setNotice('Subject added successfully.')
+      setForm({ name: '', description: '', difficulty: 'Medium', priority: 'Medium', weekly_target_minutes: 180, understanding_level: 50, color: '#6C5CE7' })
+    } catch (cause) { setError(getErrorMessage(cause)) }
+    finally { setBusy(false) }
+  }
+  async function remove(id: string) {
+    if (!confirm('Delete this subject? Related exams will also be deleted.')) return
+    setError(''); setNotice('')
+    try {
+      const { error } = await supabase!.from('subjects').delete().eq('id', id)
+      if (error) throw error
+      await load()
+      setNotice('Subject deleted.')
+    } catch (cause) { setError(getErrorMessage(cause)) }
+  }
   return <>
-    <div className="mb-6 flex items-center justify-between"><div><p className="text-sm text-slate-500">Manage your workload</p><h1 className="text-2xl font-bold">Subjects</h1></div><button onClick={() => setOpen(true)} className="flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-semibold text-white"><Plus size={17}/>Add subject</button></div>
-    {open && <form onSubmit={save} className="mb-6 grid gap-3 rounded-2xl border border-slate-200 bg-white p-5 md:grid-cols-2">
-      <input required placeholder="Subject name" value={form.name} onChange={e => setForm({...form,name:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"/>
-      <input type="color" value={form.color} onChange={e => setForm({...form,color:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"/>
-      <textarea placeholder="Description" value={form.description} onChange={e => setForm({...form,description:e.target.value})} className="rounded-lg border border-slate-200 px-3 py-2 md:col-span-2"/>
-      <select value={form.difficulty} onChange={e => setForm({...form,difficulty:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"><option>Easy</option><option>Medium</option><option>Hard</option></select>
-      <select value={form.priority} onChange={e => setForm({...form,priority:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"><option>Low</option><option>Medium</option><option>High</option></select>
-      <input type="number" min="0" value={form.weekly_target_minutes} onChange={e => setForm({...form,weekly_target_minutes:Number(e.target.value)})} className="h-11 rounded-lg border border-slate-200 px-3"/>
-      <input type="number" min="0" max="100" value={form.understanding_level} onChange={e => setForm({...form,understanding_level:Number(e.target.value)})} className="h-11 rounded-lg border border-slate-200 px-3"/>
-      <div className="flex gap-2 md:col-span-2"><button className="h-10 rounded-lg bg-violet-600 px-4 text-sm font-semibold text-white">Save subject</button><button type="button" onClick={() => setOpen(false)} className="h-10 rounded-lg border border-slate-200 px-4 text-sm">Cancel</button></div>
-    </form>}
+    <div className="page-heading"><div><p className="eyebrow">Manage your workload</p><h1>Subjects</h1></div><button onClick={() => {setError('');setOpen(true)}} className="primary-button"><Plus size={17}/>Add subject</button></div>
+    {notice && <p className="inline-notice" role="status">{notice}<button onClick={()=>setNotice('')} aria-label="Dismiss">×</button></p>}
+    {error && !open && <FormNotice message={error} />}
+    {open && <FormDialog title="Add a subject" description="Give each course its own goals and study color." icon={BookOpen} onClose={() => !busy && setOpen(false)}>
+      <form className="dialog-form" onSubmit={save}>
+        <FormNotice message={error} />
+        <div className="form-grid">
+          <Field label="Subject name" hint="For example, Biology or World History" className="form-span-2"><input autoFocus required maxLength={80} placeholder="e.g. Mathematics" value={form.name} onChange={e => setForm({...form,name:e.target.value})}/></Field>
+          <Field label="Description" className="form-span-2"><textarea rows={3} maxLength={500} placeholder="What are you studying in this subject?" value={form.description} onChange={e => setForm({...form,description:e.target.value})}/></Field>
+          <Field label="Difficulty"><select value={form.difficulty} onChange={e => setForm({...form,difficulty:e.target.value})}><option>Easy</option><option>Medium</option><option>Hard</option></select></Field>
+          <Field label="Priority"><select value={form.priority} onChange={e => setForm({...form,priority:e.target.value})}><option>Low</option><option>Medium</option><option>High</option></select></Field>
+          <Field label="Weekly target" hint="Minutes per week"><input type="number" min="0" max="10080" step="15" value={form.weekly_target_minutes} onChange={e => setForm({...form,weekly_target_minutes:Number(e.target.value)})}/></Field>
+          <Field label="Understanding" hint="Your current confidence, 0–100%"><input type="number" min="0" max="100" value={form.understanding_level} onChange={e => setForm({...form,understanding_level:Number(e.target.value)})}/></Field>
+          <Field label="Subject color" className="form-span-2"><span className="color-control"><input aria-label="Choose subject color" type="color" value={form.color} onChange={e => setForm({...form,color:e.target.value})}/><span>Used to identify this subject across your plan</span></span></Field>
+        </div>
+        <FormActions busy={busy} onCancel={() => setOpen(false)} label="Create subject"/>
+      </form>
+    </FormDialog>}
     {subjects.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{subjects.map(subject => <Card key={subject.id} title={subject.name} action={<button onClick={() => remove(subject.id)} className="text-xs text-slate-400 hover:text-red-600">Delete</button>}><div className="mb-4 h-1.5 rounded-full" style={{background:subject.color}}/><p className="min-h-10 text-sm text-slate-500">{subject.description || 'No description'}</p><div className="mt-4 grid grid-cols-2 gap-3 text-sm"><span className="text-slate-500">Difficulty<br/><strong className="text-slate-800">{subject.difficulty}</strong></span><span className="text-slate-500">Weekly target<br/><strong className="text-slate-800">{subject.weekly_target_minutes} min</strong></span></div></Card>)}</div> : <EmptyState title="No subjects yet" text="Add your first subject to begin planning." />}
   </>
 }
@@ -274,15 +374,57 @@ function TasksPage() {
   const [tasks,setTasks]=useState<any[]>([])
   const [subjects,setSubjects]=useState<any[]>([])
   const [open,setOpen]=useState(false)
+  const [searchParams,setSearchParams]=useSearchParams()
+  const [busy,setBusy]=useState(false)
+  const [error,setError]=useState('')
+  const [notice,setNotice]=useState('')
   const [form,setForm]=useState({title:'',description:'',subject_id:'',deadline:'',estimated_minutes:60,priority:'Medium',status:'Pending'})
-  async function load(){const [a,b]=await Promise.all([supabase!.from('tasks').select('*').order('deadline',{ascending:true}),supabase!.from('subjects').select('id,name')]);setTasks(a.data??[]);setSubjects(b.data??[])}
-  useEffect(()=>{load()},[])
-  async function save(e:React.FormEvent){e.preventDefault();const {data:{user}}=await supabase!.auth.getUser();if(!user)return;await supabase!.from('tasks').insert({...form,user_id:user.id,subject_id:form.subject_id||null,deadline:form.deadline||null});setOpen(false);setForm({title:'',description:'',subject_id:'',deadline:'',estimated_minutes:60,priority:'Medium',status:'Pending'});load()}
-  async function complete(task:any){await supabase!.from('tasks').update({status:task.status==='Completed'?'Pending':'Completed'}).eq('id',task.id);load()}
-  async function remove(id:string){if(confirm('Delete this task?')){await supabase!.from('tasks').delete().eq('id',id);load()}}
+  async function load(){
+    const [tasksResult,subjectsResult]=await Promise.all([supabase!.from('tasks').select('*').order('deadline',{ascending:true}),supabase!.from('subjects').select('id,name')])
+    if(tasksResult.error)throw tasksResult.error
+    if(subjectsResult.error)throw subjectsResult.error
+    setTasks(tasksResult.data??[]);setSubjects(subjectsResult.data??[])
+  }
+  useEffect(()=>{load().catch(cause=>setError(getErrorMessage(cause)))},[])
+  useEffect(()=>{if(searchParams.get('add')==='1'){setOpen(true);setSearchParams({}, {replace:true})}},[searchParams,setSearchParams])
+  async function save(e:React.FormEvent){
+    e.preventDefault();if(!form.title.trim()){setError('Enter a task title.');return}setBusy(true);setError('')
+    try {
+      const user=await getSignedInUser()
+      const {error}=await supabase!.from('tasks').insert({...form,title:form.title.trim(),user_id:user.id,subject_id:form.subject_id||null,deadline:form.deadline?new Date(form.deadline).toISOString():null})
+      if(error)throw error
+      await load();setOpen(false);setNotice('Task added successfully.')
+      setForm({title:'',description:'',subject_id:'',deadline:'',estimated_minutes:60,priority:'Medium',status:'Pending'})
+    } catch(cause){setError(getErrorMessage(cause))}
+    finally{setBusy(false)}
+  }
+  async function complete(task:any){
+    try{const{error}=await supabase!.from('tasks').update({status:task.status==='Completed'?'Pending':'Completed'}).eq('id',task.id);if(error)throw error;await load()}
+    catch(cause){setError(getErrorMessage(cause))}
+  }
+  async function remove(id:string){
+    if(!confirm('Delete this task?'))return
+    try{const{error}=await supabase!.from('tasks').delete().eq('id',id);if(error)throw error;await load();setNotice('Task deleted.')}
+    catch(cause){setError(getErrorMessage(cause))}
+  }
   return <>
-    <div className="mb-6 flex items-center justify-between"><div><p className="text-sm text-slate-500">Assignments and deadlines</p><h1 className="text-2xl font-bold">Tasks</h1></div><button onClick={()=>setOpen(true)} className="flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-semibold text-white"><Plus size={17}/>Add task</button></div>
-    {open&&<form onSubmit={save} className="mb-6 grid gap-3 rounded-2xl border border-slate-200 bg-white p-5 md:grid-cols-2"><input required placeholder="Task title" value={form.title} onChange={e=>setForm({...form,title:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"/><select value={form.subject_id} onChange={e=>setForm({...form,subject_id:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"><option value="">No subject</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><textarea placeholder="Description" value={form.description} onChange={e=>setForm({...form,description:e.target.value})} className="rounded-lg border border-slate-200 px-3 py-2 md:col-span-2"/><input type="datetime-local" value={form.deadline} onChange={e=>setForm({...form,deadline:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"/><input type="number" min="0" value={form.estimated_minutes} onChange={e=>setForm({...form,estimated_minutes:Number(e.target.value)})} className="h-11 rounded-lg border border-slate-200 px-3"/><select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"><option>Low</option><option>Medium</option><option>High</option></select><select value={form.status} onChange={e=>setForm({...form,status:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"><option>Pending</option><option>In Progress</option><option>Completed</option></select><div className="flex gap-2 md:col-span-2"><button className="h-10 rounded-lg bg-violet-600 px-4 text-sm font-semibold text-white">Save task</button><button type="button" onClick={()=>setOpen(false)} className="h-10 rounded-lg border border-slate-200 px-4 text-sm">Cancel</button></div></form>}
+    <div className="page-heading"><div><p className="eyebrow">Assignments and deadlines</p><h1>Tasks</h1></div><button onClick={()=>{setError('');setOpen(true)}} className="primary-button"><Plus size={17}/>Add task</button></div>
+    {notice&&<p className="inline-notice" role="status">{notice}<button onClick={()=>setNotice('')} aria-label="Dismiss">×</button></p>}
+    {error&&!open&&<FormNotice message={error}/>}
+    {open&&<FormDialog title="Add a task" description="Capture what needs doing and when it's due." icon={CheckCircle2} onClose={()=>!busy&&setOpen(false)}>
+      <form className="dialog-form" onSubmit={save}>
+        <FormNotice message={error}/>
+        <div className="form-grid">
+          <Field label="Task title" className="form-span-2"><input autoFocus required maxLength={120} placeholder="e.g. Finish biology lab report" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></Field>
+          <Field label="Subject"><select value={form.subject_id} onChange={e=>setForm({...form,subject_id:e.target.value})}><option value="">No subject</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
+          <Field label="Priority"><select value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}><option>Low</option><option>Medium</option><option>High</option></select></Field>
+          <Field label="Deadline" hint="Leave empty if there is no due date"><input type="datetime-local" value={form.deadline} onChange={e=>setForm({...form,deadline:e.target.value})}/></Field>
+          <Field label="Estimated time" hint="Minutes"><input type="number" min="1" max="10080" step="5" value={form.estimated_minutes} onChange={e=>setForm({...form,estimated_minutes:Number(e.target.value)})}/></Field>
+          <Field label="Description" className="form-span-2"><textarea rows={3} maxLength={1000} placeholder="Add instructions or useful details" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></Field>
+        </div>
+        <FormActions busy={busy} onCancel={()=>setOpen(false)} label="Create task"/>
+      </form>
+    </FormDialog>}
     {tasks.length?<Card title="All tasks"><div className="divide-y divide-slate-100">{tasks.map(task=><div key={task.id} className="flex items-center gap-3 py-3"><button onClick={()=>complete(task)} className={`size-5 rounded-full border ${task.status==='Completed'?'border-green-500 bg-green-500':'border-slate-300'}`}/><div className="flex-1"><p className={`font-medium ${task.status==='Completed'?'text-slate-400 line-through':'text-slate-800'}`}>{task.title}</p><p className="mt-1 text-xs text-slate-500">{task.deadline?format(new Date(task.deadline),'MMM d, h:mm a'):'No deadline'} · {task.estimated_minutes} min</p></div><span className="rounded-full bg-slate-100 px-2 py-1 text-xs">{task.priority}</span><button onClick={()=>remove(task.id)} className="text-xs text-slate-400 hover:text-red-600">Delete</button></div>)}</div></Card>:<EmptyState title="No tasks yet" text="Create a task and attach a deadline."/>}
   </>
 }
@@ -291,14 +433,53 @@ function ExamsPage(){
   const [exams,setExams]=useState<any[]>([])
   const [subjects,setSubjects]=useState<any[]>([])
   const [open,setOpen]=useState(false)
+  const [searchParams,setSearchParams]=useSearchParams()
+  const [busy,setBusy]=useState(false)
+  const [error,setError]=useState('')
+  const [notice,setNotice]=useState('')
   const [form,setForm]=useState({title:'',subject_id:'',exam_date:'',importance:'Medium',preparation_status:0,notes:''})
-  async function load(){const[a,b]=await Promise.all([supabase!.from('exams').select('*').order('exam_date'),supabase!.from('subjects').select('id,name')]);setExams(a.data??[]);setSubjects(b.data??[])}
-  useEffect(()=>{load()},[])
-  async function save(e:React.FormEvent){e.preventDefault();if(!form.subject_id)return;const{data:{user}}=await supabase!.auth.getUser();if(!user)return;await supabase!.from('exams').insert({...form,user_id:user.id,exam_date:new Date(form.exam_date).toISOString(),topics:[]});setOpen(false);load()}
-  async function remove(id:string){if(confirm('Delete this exam?')){await supabase!.from('exams').delete().eq('id',id);load()}}
+  async function load(){
+    const [examsResult,subjectsResult]=await Promise.all([supabase!.from('exams').select('*').order('exam_date'),supabase!.from('subjects').select('id,name')])
+    if(examsResult.error)throw examsResult.error
+    if(subjectsResult.error)throw subjectsResult.error
+    setExams(examsResult.data??[]);setSubjects(subjectsResult.data??[])
+  }
+  useEffect(()=>{load().catch(cause=>setError(getErrorMessage(cause)))},[])
+  useEffect(()=>{if(searchParams.get('add')==='1'){setOpen(true);setSearchParams({}, {replace:true})}},[searchParams,setSearchParams])
+  async function save(e:React.FormEvent){
+    e.preventDefault();if(!form.title.trim()){setError('Enter an exam title.');return}setBusy(true);setError('')
+    try {
+      const user=await getSignedInUser()
+      const {error}=await supabase!.from('exams').insert({...form,title:form.title.trim(),user_id:user.id,exam_date:new Date(form.exam_date).toISOString(),topics:[]})
+      if(error)throw error
+      await load();setOpen(false);setNotice('Exam added successfully.')
+      setForm({title:'',subject_id:'',exam_date:'',importance:'Medium',preparation_status:0,notes:''})
+    } catch(cause){setError(getErrorMessage(cause))}
+    finally{setBusy(false)}
+  }
+  async function remove(id:string){
+    if(!confirm('Delete this exam?'))return
+    try{const{error}=await supabase!.from('exams').delete().eq('id',id);if(error)throw error;await load();setNotice('Exam deleted.')}
+    catch(cause){setError(getErrorMessage(cause))}
+  }
   return <>
-    <div className="mb-6 flex items-center justify-between"><div><p className="text-sm text-slate-500">Countdown and preparation</p><h1 className="text-2xl font-bold">Exams</h1></div><button onClick={()=>setOpen(true)} className="flex h-10 items-center gap-2 rounded-lg bg-violet-600 px-4 text-sm font-semibold text-white"><Plus size={17}/>Add exam</button></div>
-    {open&&<form onSubmit={save} className="mb-6 grid gap-3 rounded-2xl border border-slate-200 bg-white p-5 md:grid-cols-2"><input required placeholder="Exam title" value={form.title} onChange={e=>setForm({...form,title:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"/><select required value={form.subject_id} onChange={e=>setForm({...form,subject_id:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"><option value="">Choose subject</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select><input required type="datetime-local" value={form.exam_date} onChange={e=>setForm({...form,exam_date:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"/><select value={form.importance} onChange={e=>setForm({...form,importance:e.target.value})} className="h-11 rounded-lg border border-slate-200 px-3"><option>Low</option><option>Medium</option><option>High</option></select><textarea placeholder="Notes" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} className="rounded-lg border border-slate-200 px-3 py-2 md:col-span-2"/><div className="flex gap-2 md:col-span-2"><button className="h-10 rounded-lg bg-violet-600 px-4 text-sm font-semibold text-white">Save exam</button><button type="button" onClick={()=>setOpen(false)} className="h-10 rounded-lg border border-slate-200 px-4 text-sm">Cancel</button></div></form>}
+    <div className="page-heading"><div><p className="eyebrow">Countdown and preparation</p><h1>Exams</h1></div><button onClick={()=>{setError('');setOpen(true)}} className="primary-button"><Plus size={17}/>Add exam</button></div>
+    {notice&&<p className="inline-notice" role="status">{notice}<button onClick={()=>setNotice('')} aria-label="Dismiss">×</button></p>}
+    {error&&!open&&<FormNotice message={error}/>}
+    {open&&<FormDialog title="Add an exam" description="Add an exam date so StudyFlow can prioritize your revision." icon={GraduationCap} onClose={()=>!busy&&setOpen(false)}>
+      <form className="dialog-form" onSubmit={save}>
+        <FormNotice message={error}/>
+        <div className="form-grid">
+          <Field label="Exam title" className="form-span-2"><input autoFocus required maxLength={120} placeholder="e.g. Chemistry midterm" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></Field>
+          <Field label="Subject" className="form-span-2"><select required value={form.subject_id} onChange={e=>setForm({...form,subject_id:e.target.value})}><option value="">Choose a subject</option>{subjects.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select>{subjects.length===0&&<small>Add a subject first to link this exam.</small>}</Field>
+          <Field label="Date and time"><input required type="datetime-local" value={form.exam_date} onChange={e=>setForm({...form,exam_date:e.target.value})}/></Field>
+          <Field label="Importance"><select value={form.importance} onChange={e=>setForm({...form,importance:e.target.value})}><option>Low</option><option>Medium</option><option>High</option></select></Field>
+          <Field label="Preparation progress" hint="How prepared do you feel?"><span className="range-field"><input type="range" min="0" max="100" step="5" value={form.preparation_status} onChange={e=>setForm({...form,preparation_status:Number(e.target.value)})}/><strong>{form.preparation_status}%</strong></span></Field>
+          <Field label="Notes" className="form-span-2"><textarea rows={3} maxLength={1000} placeholder="Topics, room, or anything else to remember" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></Field>
+        </div>
+        <FormActions busy={busy} onCancel={()=>setOpen(false)} label="Create exam"/>
+      </form>
+    </FormDialog>}
     {exams.length?<div className="grid gap-5 md:grid-cols-2">{exams.map(exam=>{const days=Math.ceil((new Date(exam.exam_date).getTime()-Date.now())/86400000);return<Card key={exam.id} title={exam.title} action={<button onClick={()=>remove(exam.id)} className="text-xs text-slate-400 hover:text-red-600">Delete</button>}><p className="text-sm text-slate-500">{format(new Date(exam.exam_date),'EEEE, MMMM d · h:mm a')}</p><div className="mt-5 flex items-end justify-between"><div><strong className="text-3xl text-slate-900">{Math.max(days,0)}</strong><span className="ml-2 text-sm text-slate-500">days left</span></div><span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">{exam.importance}</span></div></Card>})}</div>:<EmptyState title="No exams added" text="Track an exam and receive revision-priority sessions."/>}
   </>
 }

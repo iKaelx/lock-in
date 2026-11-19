@@ -134,6 +134,30 @@ alter table public.study_plans enable row level security;
 alter table public.study_sessions enable row level security;
 alter table public.user_subscriptions enable row level security;
 
+revoke all on table
+  public.profiles,
+  public.user_preferences,
+  public.subjects,
+  public.tasks,
+  public.exams,
+  public.availability,
+  public.study_plans,
+  public.study_sessions,
+  public.user_subscriptions
+from anon;
+
+grant select, insert, update, delete on table
+  public.profiles,
+  public.user_preferences,
+  public.subjects,
+  public.tasks,
+  public.exams,
+  public.availability,
+  public.study_plans,
+  public.study_sessions,
+  public.user_subscriptions
+to authenticated;
+
 create or replace function public.create_profile_for_user()
 returns trigger
 language plpgsql
