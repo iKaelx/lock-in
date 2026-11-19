@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /subjects
+Disallow: /tasks
+Disallow: /exams
+Disallow: /planner
+Disallow: /calendar
+Disallow: /timer
+Disallow: /analytics
+Disallow: /settings
