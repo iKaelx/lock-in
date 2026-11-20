@@ -335,6 +335,7 @@ function Dashboard() {
   return (
     <>
       <section className="dashboard-welcome">
+        <div className="dashboard-particles" aria-hidden="true">{Array.from({length:9},(_,index)=><i key={index}/>)}</div>
         <div className="dashboard-welcome-copy">
           <p className="dashboard-kicker"><Sparkles size={14}/> YOUR LEARNING OVERVIEW</p>
           <h1>Good morning</h1>
@@ -1212,6 +1213,7 @@ function TimerPage(){
             <circle className="timer-ring-track" cx="110" cy="110" r="96"/>
             <circle className="timer-ring-progress" cx="110" cy="110" r="96" strokeDasharray={circumference} strokeDashoffset={circumference*(1-progress)}/>
           </svg>
+          <div className="timer-particles" aria-hidden="true"><i/><i/><i/><i/><i/><i/></div>
           <div className="timer-readout"><span>{running?'FOCUSING':stopped?'SESSION ENDED':remaining===0?'COMPLETE':'READY'}</span><strong>{String(minutes).padStart(2,'0')}:{String(seconds).padStart(2,'0')}</strong><small>minutes remaining</small></div>
         </div>
         <p className="timer-caption">{running?'Stay with the task in front of you.':hasElapsed&&!stopped?'Paused. Pick up where you left off.':stopped?'Your session is ready to review.':'Choose a duration and start when you’re ready.'}</p>

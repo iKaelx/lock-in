@@ -664,3 +664,45 @@ h1,h2,h3 { font-family: "Manrope", "DM Sans", sans-serif; }
   .note-editor-form textarea{min-height:170px}
 }
 
+.dashboard-particles{position:absolute;z-index:0;inset:0;overflow:hidden;pointer-events:none}
+.dashboard-particles i{position:absolute;width:4px;height:4px;border-radius:50%;background:#ddd6ff;box-shadow:0 0 12px 2px rgba(208,198,255,.55);opacity:0;animation:dashboard-particle-drift 9s ease-in-out infinite}
+.dashboard-particles i:nth-child(1){left:10%;top:27%;animation-delay:-1s}
+.dashboard-particles i:nth-child(2){left:24%;top:74%;width:3px;height:3px;animation-delay:-5s;animation-duration:11s}
+.dashboard-particles i:nth-child(3){left:39%;top:18%;animation-delay:-3.5s;animation-duration:10s}
+.dashboard-particles i:nth-child(4){left:53%;top:67%;width:3px;height:3px;animation-delay:-7s}
+.dashboard-particles i:nth-child(5){left:68%;top:24%;animation-delay:-2s;animation-duration:12s}
+.dashboard-particles i:nth-child(6){left:78%;top:73%;width:3px;height:3px;animation-delay:-6s}
+.dashboard-particles i:nth-child(7){left:89%;top:37%;animation-delay:-4s;animation-duration:10s}
+.dashboard-particles i:nth-child(8){left:48%;top:86%;width:2px;height:2px;animation-delay:-8s}
+.dashboard-particles i:nth-child(9){left:31%;top:43%;width:2px;height:2px;animation-delay:-6.5s;animation-duration:12s}
+@keyframes dashboard-particle-drift{0%{opacity:0;transform:translate3d(0,12px,0) scale(.7)}25%{opacity:.55}65%{opacity:.35}100%{opacity:0;transform:translate3d(12px,-34px,0) scale(1.2)}}
+.dashboard-welcome{animation:dashboard-arrive .65s cubic-bezier(.2,.7,.25,1) both}
+.dashboard-stats .stat-card{animation:dashboard-arrive .55s cubic-bezier(.2,.7,.25,1) backwards}
+.dashboard-stats .stat-card:nth-child(2){animation-delay:.08s}
+.dashboard-stats .stat-card:nth-child(3){animation-delay:.16s}
+@keyframes dashboard-arrive{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.dashboard-main-action{animation:dashboard-encourage 4.8s ease-in-out infinite}
+@keyframes dashboard-encourage{0%,100%{box-shadow:0 7px 18px rgba(15,12,41,.16)}50%{box-shadow:0 8px 26px rgba(194,180,255,.38)}}
+.dashboard-progress-track>span{position:relative;overflow:hidden}
+.dashboard-progress-track>span::after{position:absolute;inset:0;transform:translateX(-150%);background:linear-gradient(100deg,transparent 15%,rgba(255,255,255,.65) 50%,transparent 85%);content:"";animation:dashboard-progress-shimmer 4.2s ease-in-out infinite}
+@keyframes dashboard-progress-shimmer{0%,35%{transform:translateX(-150%)}75%,100%{transform:translateX(150%)}}
+.timer-particles{position:absolute;inset:0;pointer-events:none}
+.timer-particles i{position:absolute;width:4px;height:4px;border-radius:50%;background:#c9c0ff;box-shadow:0 0 10px 2px rgba(150,133,255,.5);opacity:0}
+.timer-particles i:nth-child(1){left:13%;top:34%}
+.timer-particles i:nth-child(2){left:78%;top:23%;width:3px;height:3px}
+.timer-particles i:nth-child(3){left:87%;top:64%;width:3px;height:3px}
+.timer-particles i:nth-child(4){left:28%;top:83%;width:3px;height:3px}
+.timer-particles i:nth-child(5){left:47%;top:8%;width:3px;height:3px}
+.timer-particles i:nth-child(6){left:5%;top:60%;width:2px;height:2px}
+.timer-dial.is-running .timer-particles i{animation:timer-particle-float 5.5s ease-in-out infinite}
+.timer-dial.is-running .timer-particles i:nth-child(2){animation-delay:-1.1s;animation-duration:6.4s}
+.timer-dial.is-running .timer-particles i:nth-child(3){animation-delay:-2.7s;animation-duration:5.8s}
+.timer-dial.is-running .timer-particles i:nth-child(4){animation-delay:-3.4s;animation-duration:7s}
+.timer-dial.is-running .timer-particles i:nth-child(5){animation-delay:-.8s;animation-duration:6s}
+.timer-dial.is-running .timer-particles i:nth-child(6){animation-delay:-4.3s;animation-duration:7.3s}
+@keyframes timer-particle-float{0%,100%{opacity:0;transform:translateY(7px) scale(.7)}35%,65%{opacity:.5;transform:translateY(-7px) scale(1)}}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-particles i,.dashboard-main-action,.dashboard-progress-track>span::after,.dashboard-welcome,.dashboard-stats .stat-card,.timer-dial.is-running .timer-particles i{animation:none!important}
+  .timer-ring-progress{transition:none}
+}
+
