@@ -51,10 +51,15 @@ export function generateWeeklyPlan(
   sessionMinutes = 50,
   breakMinutes = 10,
   maxDailyMinutes = 300,
+  referenceDate = new Date(),
 ) {
   if (!subjects.length) return { sessions: [] as GeneratedSession[], warning: 'Add at least one subject before generating a plan.' }
 
-  const now = new Date()
+  if (!availability.some(slot => slot.is_available)) {
+    return { sessions: [] as GeneratedSession[], warning: 'Set your available study times before generating a plan.' }
+  }
+
+  const now = referenceDate
   const scores = new Map(subjects.map(subject => {
     let urgency = subject.weekly_target_minutes > 0 ? 1 : 0.25
     urgency *= difficultyWeight[subject.difficulty] * priorityWeight[subject.priority]
@@ -67,6 +72,7 @@ export function generateWeeklyPlan(
     }
 
     for (const exam of exams.filter(e => e.subject_id === subject.id)) {
+      if (new Date(exam.exam_date) < now) continue
       const days = Math.max(1, (new Date(exam.exam_date).getTime() - now.getTime()) / 86400000)
       urgency += importanceWeight[exam.importance] * ((100 - exam.preparation_status) / 100) * (10 / days)
     }
@@ -86,46 +92,79 @@ export function generateWeeklyPlan(
   }
 
   const sessions: GeneratedSession[] = []
-  let availableMinutes = 0
+  const slotsByDay = new Map<number, Array<{ start: number; end: number }>>()
   for (let day = 0; day < 7; day++) {
-    const daySlots = availability.filter(a => a.is_available && a.day_of_week === day)
-    for (const slot of daySlots) {
-      const [sh, sm] = slot.start_time.split(':').map(Number)
-      const [eh, em] = slot.end_time.split(':').map(Number)
-      availableMinutes += Math.max(0, eh * 60 + em - (sh * 60 + sm))
-    }
+    const intervals = availability
+      .filter(slot => slot.is_available && slot.day_of_week === day)
+      .map(slot => {
+        const [startHour, startMinute] = slot.start_time.split(':').map(Number)
+        const [endHour, endMinute] = slot.end_time.split(':').map(Number)
+        return { start: startHour * 60 + startMinute, end: endHour * 60 + endMinute }
+      })
+      .filter(slot => slot.end > slot.start)
+      .sort((a, b) => a.start - b.start)
+    const merged = intervals.reduce<Array<{ start: number; end: number }>>((result, slot) => {
+      const previous = result.at(-1)
+      if (previous && slot.start <= previous.end) previous.end = Math.max(previous.end, slot.end)
+      else result.push({ ...slot })
+      return result
+    }, [])
+    slotsByDay.set(day, merged)
   }
-  availableMinutes = Math.min(availableMinutes, maxDailyMinutes * 7)
+  const availableMinutes = [...slotsByDay.values()].reduce(
+    (total, slots) => total + Math.min(maxDailyMinutes, slots.reduce((sum, slot) => sum + slot.end - slot.start, 0)),
+    0,
+  )
 
   const used = new Map(subjects.map(subject => [subject.id, 0]))
   let dailyMinutes = new Array(7).fill(0)
   const ordered = [...subjects].sort((a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0))
+  let nextSubjectIndex = 0
 
   for (let day = 0; day < 7; day++) {
     const jsDay = (weekStart.getDay() + day) % 7
-    const daySlots = availability
-      .filter(a => a.is_available && a.day_of_week === jsDay)
-      .sort((a, b) => a.start_time.localeCompare(b.start_time))
+    const daySlots = slotsByDay.get(jsDay) ?? []
     for (const slot of daySlots) {
       let cursor = new Date(weekStart)
       cursor.setDate(cursor.getDate() + day)
-      const [sh, sm] = slot.start_time.split(':').map(Number)
+      const sh = Math.floor(slot.start / 60)
+      const sm = slot.start % 60
+      const eh = Math.floor(slot.end / 60)
+      const em = slot.end % 60
       cursor.setHours(sh, sm, 0, 0)
-      const [eh, em] = slot.end_time.split(':').map(Number)
       const slotEnd = new Date(cursor)
       slotEnd.setHours(eh, em, 0, 0)
+      if (slotEnd <= now) continue
+      if (cursor < now) {
+        cursor = new Date(now)
+        if (cursor.getSeconds() || cursor.getMilliseconds()) cursor.setMinutes(cursor.getMinutes() + 1)
+        cursor.setSeconds(0, 0)
+      }
 
-      for (const subject of ordered) {
-        if (dailyMinutes[day] >= maxDailyMinutes) break
+      while (dailyMinutes[day] < maxDailyMinutes && cursor < slotEnd) {
+        let subjectIndex = -1
+        for (let offset = 0; offset < ordered.length; offset++) {
+          const index = (nextSubjectIndex + offset) % ordered.length
+          const candidate = ordered[index]
+          if ((subjectMinutes.get(candidate.id) ?? 0) - (used.get(candidate.id) ?? 0) > 0) {
+            subjectIndex = index
+            break
+          }
+        }
+        if (subjectIndex < 0) break
+        const subject = ordered[subjectIndex]
+
         const remainingSubject = (subjectMinutes.get(subject.id) ?? 0) - (used.get(subject.id) ?? 0)
-        if (remainingSubject <= 0) continue
-
-        const duration = Math.min(sessionMinutes, remainingSubject, maxDailyMinutes - dailyMinutes[day])
+        const duration = Math.min(
+          Math.max(1, sessionMinutes),
+          remainingSubject,
+          maxDailyMinutes - dailyMinutes[day],
+        )
         const end = new Date(cursor.getTime() + duration * 60000)
         if (end > slotEnd) break
 
         const closeExam = exams
-          .filter(exam => exam.subject_id === subject.id)
+          .filter(exam => exam.subject_id === subject.id && new Date(exam.exam_date) >= cursor)
           .sort((a, b) => new Date(a.exam_date).getTime() - new Date(b.exam_date).getTime())[0]
         const revision = closeExam
           ? (new Date(closeExam.exam_date).getTime() - cursor.getTime()) / 86400000 <= 14
@@ -140,7 +179,8 @@ export function generateWeeklyPlan(
         })
         used.set(subject.id, (used.get(subject.id) ?? 0) + duration)
         dailyMinutes[day] += duration
-        cursor = new Date(end.getTime() + breakMinutes * 60000)
+        nextSubjectIndex = (subjectIndex + 1) % ordered.length
+        cursor = new Date(end.getTime() + Math.max(0, breakMinutes) * 60000)
         if (cursor >= slotEnd) break
       }
     }

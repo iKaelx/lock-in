@@ -1,6 +1,6 @@
-# StudyFlow
+# Lock-in
 
-StudyFlow is a responsive smart study planner built with React, TypeScript, Vite, Tailwind CSS, Supabase, TanStack Query, Recharts, and date-fns.
+Lock-in is a responsive smart study planner built with React, TypeScript, Vite, Tailwind CSS, Supabase, TanStack Query, Recharts, and date-fns.
 
 ## Local setup
 
