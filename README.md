@@ -14,7 +14,7 @@ Lock-in is a responsive smart study planner built with React, TypeScript, Vite, 
    ```
 3. Create a Supabase project and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`.
    Use only the publishable browser key. Never expose a service-role key in Vite environment variables.
-4. Apply `supabase/migrations/202611190001_initial_schema.sql` in the Supabase SQL editor.
+4. Apply the SQL files in `supabase/migrations` in filename order in the Supabase SQL editor. The latest migration adds personal calendar events and private study notes.
 5. Configure the app URL and local redirect URLs in Supabase Auth URL Configuration.
 6. Start the app:
    ```sh
