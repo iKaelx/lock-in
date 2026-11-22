@@ -578,6 +578,29 @@ h1,h2,h3 { font-family: "Manrope", "DM Sans", sans-serif; }
 .dark .calendar-event{background:#322d24}
 .dark .calendar-event-header time{color:#f5ca7a}
 .dark .calendar-event-header button:hover{background:#413a2a;color:#c3baff}
+.calendar-plan-banner{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:12px;margin:0 0 15px;border:1px solid #e6e2ff;border-radius:14px;padding:13px 15px;background:linear-gradient(110deg,#f6f3ff,#fff)}
+.calendar-plan-banner-icon{width:36px;height:36px;display:grid;place-items:center;border-radius:11px;background:#efedff;color:#6554d5}
+.calendar-plan-banner>div{display:grid;gap:4px;min-width:0}
+.calendar-plan-banner strong{color:#292344;font-family:"Manrope";font-size:12px}
+.calendar-plan-banner>div>span{color:#747b8b;font-size:10px;line-height:1.5}
+.calendar-remove-plan-button{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #f1c9c4;border-radius:9px;padding:0 11px;background:#fff7f6;color:#b74539;font-size:10px;font-weight:800;white-space:nowrap}
+.calendar-remove-plan-button:hover:not(:disabled){border-color:#e8aaa3;background:#fff0ed}
+.calendar-remove-plan-button:disabled{cursor:wait;opacity:.65}
+.dark .calendar-plan-banner{border-color:#34314e;background:linear-gradient(110deg,#202039,#1b2030)}
+.dark .calendar-plan-banner strong{color:var(--text)}
+.dark .calendar-plan-banner>div>span{color:var(--muted)}
+.dark .calendar-plan-banner-icon{background:#292441;color:#c3baff}
+.dark .calendar-remove-plan-button{border-color:#5a3438;background:#332427;color:#ffaaa0}
+.dark .calendar-remove-plan-button:hover:not(:disabled){border-color:#754349;background:#3d292d}
+.inline-notice>a{margin-left:auto;color:inherit;font-weight:800;text-decoration:underline;text-underline-offset:2px}
+@media (max-width: 700px) {
+  .calendar-plan-banner{grid-template-columns:34px minmax(0,1fr);gap:10px;padding:12px}
+  .calendar-plan-banner-icon{width:32px;height:32px}
+  .calendar-plan-banner>div{align-self:center}
+  .calendar-remove-plan-button{grid-column:2;justify-self:start}
+  .inline-notice{flex-wrap:wrap;gap:8px}
+  .inline-notice>a{margin-left:0}
+}
 
 .notes-heading{align-items:center}
 .notes-heading h1{margin-top:5px}

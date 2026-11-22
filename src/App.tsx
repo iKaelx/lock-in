@@ -742,11 +742,12 @@ function PlannerPage(){
   const [preferences,setPreferences]=useState({preferred_session_minutes:50,break_minutes:10,max_daily_study_minutes:300})
   const [sessions,setSessions]=useState<any[]>([])
   const [warning,setWarning]=useState('')
+  const [notice,setNotice]=useState('')
   const [loading,setLoading]=useState(true)
   const [accepting,setAccepting]=useState(false)
   useEffect(()=>{let active=true;Promise.all([supabase!.from('subjects').select('*').eq('archived',false),supabase!.from('availability').select('*'),supabase!.from('tasks').select('subject_id,deadline,estimated_minutes,priority,status'),supabase!.from('exams').select('subject_id,exam_date,importance,preparation_status'),supabase!.from('user_preferences').select('preferred_session_minutes,break_minutes,max_daily_study_minutes').maybeSingle()]).then(([a,b,c,d,e])=>{const failed=[a.error,b.error,c.error,d.error,e.error].find(Boolean);if(failed)throw failed;if(active){setSubjects(a.data??[]);setAvailability(b.data??[]);setTasks(c.data??[]);setExams(d.data??[]);if(e.data)setPreferences(e.data)}}).catch(cause=>{if(active)setWarning(getErrorMessage(cause))}).finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[])
   function generate(){
-    setWarning('')
+    setWarning('');setNotice('')
     if(!availability.some(slot=>slot.is_available)){setWarning('Add your study availability in Settings before generating a plan.');return}
     const start=startOfWeek(new Date(),{weekStartsOn:1})
     const result=generateWeeklyPlan(subjects,availability,tasks,exams,start,preferences.preferred_session_minutes,preferences.break_minutes,preferences.max_daily_study_minutes)
@@ -754,7 +755,7 @@ function PlannerPage(){
   }
   async function accept(){
     if(!sessions.length||accepting)return
-    setAccepting(true);setWarning('')
+    setAccepting(true);setWarning('');setNotice('')
     let planId:string|undefined
     let userId:string
     const start=format(startOfWeek(new Date(),{weekStartsOn:1}),'yyyy-MM-dd')
@@ -771,7 +772,7 @@ function PlannerPage(){
       if(sessionsError)throw sessionsError
       const {error:acceptError}=await supabase!.from('study_plans').update({status:'Accepted'}).eq('id',plan.id).select('id').single()
       if(acceptError)throw acceptError
-      setWarning('Plan accepted and added to your calendar.')
+      setNotice('Plan accepted and added to your calendar.')
     }catch(cause){
       if(planId){
         const {error:removeSessionsError}=await supabase!.from('study_sessions').delete().eq('plan_id',planId)
@@ -782,8 +783,9 @@ function PlannerPage(){
     }finally{setAccepting(false)}
   }
   return <>
-    <div className="mb-6 flex items-end justify-between"><div><p className="text-sm text-slate-500">Deterministic weekly scheduling</p><h1 className="text-2xl font-bold">Study planner</h1></div><button onClick={generate} className="h-10 rounded-lg bg-violet-600 px-4 text-sm font-semibold text-white">Generate plan</button></div>
-    {warning&&<div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{warning}{warning.includes('study availability')&&<NavLink to="/settings" className="ml-2 font-semibold underline">Open Settings</NavLink>}</div>}
+    <div className="mb-6 flex items-end justify-between"><div><p className="text-sm text-slate-500">Deterministic weekly scheduling</p><h1 className="text-2xl font-bold">Study planner</h1></div><button onClick={generate} disabled={loading||accepting} className="h-10 rounded-lg bg-violet-600 px-4 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60">{loading?'Loading…':'Generate plan'}</button></div>
+    {warning&&<div role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">{warning}{warning.includes('study availability')&&<NavLink to="/settings" className="ml-2 font-semibold underline">Open Settings</NavLink>}{warning.includes('accepted plan')&&<NavLink to="/calendar" className="ml-2 font-semibold underline">Open Calendar to remove it</NavLink>}</div>}
+    {notice&&<p className="inline-notice" role="status">{notice}<NavLink to="/calendar">View calendar</NavLink></p>}
     {loading?<div className="h-48 animate-pulse rounded-2xl bg-slate-200"/>:sessions.length?<><div className="mb-4 flex items-center justify-between"><p className="text-sm text-slate-500">{sessions.length} sessions generated</p><button onClick={accept} disabled={accepting} className="h-10 rounded-lg border border-violet-600 px-4 text-sm font-semibold text-violet-600 disabled:opacity-60">{accepting?'Saving…':'Accept plan'}</button></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{sessions.map((session,i)=>{const subject=subjects.find(s=>s.id===session.subject_id);const start=new Date(session.start_time);return<div key={i} className="rounded-2xl border border-slate-200 bg-white p-4"><div className="mb-3 h-1 rounded-full" style={{background:subject?.color||'#6C5CE7'}}/><p className="font-semibold text-slate-800">{session.title}</p><p className="mt-2 text-sm text-slate-500">{format(start,'EEE, h:mm a')} · {Math.round((new Date(session.end_time).getTime()-start.getTime())/60000)} min</p><span className="mt-3 inline-block rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600">{session.session_type}</span></div>})}</div></>:<EmptyState title="No generated plan" text="Lock-in will prioritize deadlines, exams and subject targets."/>}
   </>
 }
@@ -827,7 +829,9 @@ function CalendarPage(){
   const [week,setWeek]=useState(startOfWeek(new Date(),{weekStartsOn:1}))
   const [loading,setLoading]=useState(true)
   const [error,setError]=useState('')
+  const [planNotice,setPlanNotice]=useState('')
   const [updatingSessionId,setUpdatingSessionId]=useState<string|null>(null)
+  const [removingPlan,setRemovingPlan]=useState(false)
   const [eventFormOpen,setEventFormOpen]=useState(false)
   const [eventForm,setEventForm]=useState<CalendarEventForm>({id:'',title:'',description:'',location:'',subject_id:null,date:format(startOfWeek(new Date(),{weekStartsOn:1}),'yyyy-MM-dd'),start_time:'09:00',end_time:'10:00',color:eventColors[0].value})
   const [eventFormError,setEventFormError]=useState('')
@@ -910,6 +914,29 @@ function CalendarPage(){
     }catch(cause){setError(getErrorMessage(cause))}
     finally{setUpdatingSessionId(null)}
   }
+  async function removePlan(){
+    const plannedSessions=sessions.filter(session=>session.status==='Scheduled'&&session.plan_id)
+    const planIds=[...new Set(plannedSessions.map(session=>session.plan_id as string))]
+    if(!planIds.length||removingPlan)return
+    if(!window.confirm(`Remove ${plannedSessions.length} scheduled study ${plannedSessions.length===1?'session':'sessions'} from this week? Completed sessions and personal events will stay on your calendar.`))return
+    setRemovingPlan(true);setError('');setPlanNotice('')
+    let planArchived=false
+    try{
+      const user=await getSignedInUser()
+      const {error:archiveError}=await supabase!.from('study_plans').update({status:'Archived'}).eq('user_id',user.id).in('id',planIds)
+      if(archiveError)throw archiveError
+      planArchived=true
+      const {error:deleteError}=await supabase!.from('study_sessions').delete().eq('user_id',user.id).in('plan_id',planIds).eq('status','Scheduled').gte('start_time',week.toISOString()).lt('start_time',addDays(week,7).toISOString())
+      if(deleteError)throw deleteError
+      await load()
+      setPlanNotice('Your scheduled plan has been removed. You can create a fresh plan whenever you’re ready.')
+    }catch(cause){
+      await load()
+      setError(planArchived
+        ?`${getErrorMessage(cause)} The plan was archived, but some scheduled sessions may remain. Try removing the plan again.`
+        :getErrorMessage(cause))
+    }finally{setRemovingPlan(false)}
+  }
   const days=Array.from({length:7},(_,i)=>addDays(week,i))
   const todayWeek=startOfWeek(new Date(),{weekStartsOn:1})
   const completedSessions=sessions.filter(session=>session.status==='Completed')
@@ -928,12 +955,18 @@ function CalendarPage(){
       </div>
     </div>
     {error&&<FormNotice message={error}/>}
+    {planNotice&&<p className="inline-notice" role="status">{planNotice}<NavLink to="/planner">Create a new plan</NavLink><button onClick={()=>setPlanNotice('')} aria-label="Dismiss">×</button></p>}
     {loading?<div className="calendar-summary calendar-summary-loading">{[1,2,3,4].map(index=><div key={index} className="animate-pulse"/>)}</div>:!error&&<div className="calendar-summary">
       <article><span className="calendar-summary-icon scheduled"><Clock3 size={17}/></span><div><span>Scheduled sessions</span><strong>{scheduledSessions.length}</strong></div></article>
       <article><span className="calendar-summary-icon completed"><CheckCircle2 size={17}/></span><div><span>Completed</span><strong>{completedSessions.length}</strong></div></article>
       <article><span className="calendar-summary-icon focus"><Clock3 size={17}/></span><div><span>Focus time</span><strong>{(completedMinutes/60).toFixed(1)}<small>h</small></strong></div></article>
       <article><span className="calendar-summary-icon event"><CalendarDays size={17}/></span><div><span>Personal events</span><strong>{events.length}</strong></div></article>
     </div>}
+    {!loading&&!error&&sessions.some(session=>session.status==='Scheduled'&&session.plan_id)&&<section className="calendar-plan-banner" aria-label="Study plan actions">
+      <span className="calendar-plan-banner-icon"><Sparkles size={17}/></span>
+      <div><strong>Study plan on your calendar</strong><span>Remove the scheduled plan to make room for a new one. Completed sessions and personal events will stay.</span></div>
+      <button type="button" className="calendar-remove-plan-button" onClick={removePlan} disabled={removingPlan}>{removingPlan?<LoaderCircle className="spin" size={15}/>:<Trash2 size={15}/>} {removingPlan?'Removing…':'Remove plan'}</button>
+    </section>}
     {!loading&&!error&&sessions.length===0&&events.length===0&&    <div className="calendar-empty-banner"><div><strong>Plan your week your way</strong><span>Add personal events or generate a study plan to see your schedule here.</span></div><div><button onClick={()=>openEventForm()}><Plus size={14}/>Add event</button><NavLink to="/planner">Generate a plan <ArrowLeft className="card-link-arrow" size={14}/></NavLink></div></div>}
     {loading?<div className="h-64 animate-pulse rounded-2xl bg-slate-200"/>:!error&&<div className="calendar-scroller"><div className="calendar-grid">
       {days.map(day=>{
